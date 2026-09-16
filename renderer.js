@@ -86,6 +86,10 @@ for (const [key, id] of Object.entries({
   diagram: "file-diagram",
   viewMode: "view-mode",
   exportPrisma: "export-prisma",
+  exportPdfWrap: "export-pdf-wrap",
+  exportPdf: "export-pdf",
+  exportPdfMenu: "export-pdf-menu",
+  exportPdfMenuPanel: "export-pdf-menu-panel",
   importSchema: "import-schema",
   importSchemaFile: "import-schema-file",
   newFile: "new-file",
@@ -824,6 +828,7 @@ function renderEditor() {
     els.editorEmpty.textContent = state.notice || "Nenhum arquivo selecionado";
     els.viewMode.hidden = true;
     if (els.exportPrisma) els.exportPrisma.hidden = true;
+    if (els.exportPdfWrap) els.exportPdfWrap.hidden = true;
     if (els.importSchema) els.importSchema.hidden = true;
     if (els.htmlStage) els.htmlStage.hidden = true;
     if (els.schema) els.schema.hidden = true;
@@ -858,6 +863,7 @@ function renderEditor() {
 
   els.viewMode.hidden = !(md || isHtml || isDb);
   if (els.exportPrisma) els.exportPrisma.hidden = !isDb;
+  if (els.exportPdfWrap) els.exportPdfWrap.hidden = !(md || file.format === "txt");
   if (els.importSchema) els.importSchema.hidden = !isDb;
 
   const previewing = (md || isHtml) && state.view === "preview";
@@ -1396,6 +1402,64 @@ async function createFile(format = "md", { folderId, title } = {}) {
     state.notice = `Não deu para criar: ${err.message || err}`;
     render();
     return null;
+  } finally {
+    setTimeout(() => {
+      ignoreWatch = Math.max(0, ignoreWatch - 1);
+    }, 500);
+  }
+}
+
+function buildExportHtml(file) {
+  const body = file.id === state.fileId ? currentSourceValue() : file.body || "";
+  if (file.format === "md") return window.renderMarkdown(body) || "";
+  if (file.format === "txt") {
+    return `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${escapeHtml(body)}</pre>`;
+  }
+  return "";
+}
+
+async function exportCurrentPdf(destination = "vault") {
+  if (els.exportPdfMenuPanel) els.exportPdfMenuPanel.hidden = true;
+  const file = selectedFile();
+  if (!file || (file.format !== "md" && file.format !== "txt")) return;
+  if (!api?.files?.exportPdf) {
+    state.notice = "Exportação PDF só funciona no app Electron";
+    renderEditor();
+    return;
+  }
+  const html = buildExportHtml(file);
+  if (!String(html).trim()) {
+    state.notice = "Nada para exportar";
+    renderEditor();
+    return;
+  }
+  try {
+    ignoreWatch += 1;
+    state.notice = "Exportando PDF…";
+    renderEditor();
+    const result = await api.files.exportPdf({
+      sourceId: file.id,
+      html,
+      destination,
+    });
+    if (result?.canceled) {
+      state.notice = "";
+      renderEditor();
+      return;
+    }
+    if (result.openedInVault && result.id) {
+      await refresh(result.id);
+      openFile(result.id);
+      state.notice = "PDF exportado";
+      renderEditor();
+      return;
+    }
+    state.notice = `PDF salvo em ${shortPath(result.path)}`;
+    renderEditor();
+  } catch (err) {
+    console.error(err);
+    state.notice = `Não deu para exportar: ${err.message || err}`;
+    renderEditor();
   } finally {
     setTimeout(() => {
       ignoreWatch = Math.max(0, ignoreWatch - 1);
@@ -2287,6 +2351,21 @@ els.exportPrisma?.addEventListener("click", async () => {
   renderEditor();
 });
 
+els.exportPdf?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  exportCurrentPdf("vault");
+});
+els.exportPdfMenu?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (els.exportPdfMenuPanel) els.exportPdfMenuPanel.hidden = !els.exportPdfMenuPanel.hidden;
+});
+els.exportPdfMenuPanel?.addEventListener("mousedown", (event) => event.preventDefault());
+els.exportPdfMenuPanel?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const button = event.target.closest("[data-export-pdf]");
+  if (button) exportCurrentPdf(button.dataset.exportPdf);
+});
+
 els.importSchema?.addEventListener("click", () => {
   const file = selectedFile();
   if (!file || file.format !== "db") return;
@@ -2482,6 +2561,7 @@ els.paletteInput?.addEventListener("keydown", (event) => {
 
 document.addEventListener("click", (event) => {
   if (els.formatMenu) els.formatMenu.hidden = true;
+  if (els.exportPdfMenuPanel) els.exportPdfMenuPanel.hidden = true;
   if (!event.target.closest("#context-menu")) closeContextMenu();
   if (!event.target.closest("#slash-menu, #file-body, #code-editor")) closeSlash();
 });

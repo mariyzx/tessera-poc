@@ -133,6 +133,20 @@
             <button class="text-btn" id="export-prisma" hidden type="button" title="Exportar schema Prisma">
               Exportar
             </button>
+            <div class="split-btn" id="export-pdf-wrap" hidden>
+              <button class="text-btn" id="export-pdf" type="button" title="Exportar PDF para o cofre">
+                Exportar PDF
+              </button>
+              <button class="icon-btn icon-btn--caret" id="export-pdf-menu" type="button" title="Mais opções de exportação">
+                <svg viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M2.4 4.2 6 8l3.6-3.8H2.4Z" />
+                </svg>
+              </button>
+              <div class="menu" id="export-pdf-menu-panel" hidden>
+                <button type="button" data-export-pdf="vault">Salvar no cofre</button>
+                <button type="button" data-export-pdf="dialog">Salvar como…</button>
+              </div>
+            </div>
             <button class="text-btn" id="import-schema" hidden type="button" title="Importar Prisma, SQL ou DBMS">
               Importar
             </button>

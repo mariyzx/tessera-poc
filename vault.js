@@ -320,6 +320,36 @@ function createVault(root) {
     return fileFromPath(filePath);
   }
 
+  function isAbsoluteInside(absPath) {
+    const resolved = path.resolve(absPath);
+    const rootWithSep = vaultRoot.endsWith(path.sep) ? vaultRoot : vaultRoot + path.sep;
+    return resolved === vaultRoot || resolved.startsWith(rootWithSep);
+  }
+
+  function relativeFromAbsolute(absPath) {
+    if (!isAbsoluteInside(absPath)) throw new Error("Caminho fora do cofre");
+    return toRel(path.resolve(absPath));
+  }
+
+  async function writeBinary(relativePath, buffer) {
+    await ensureRoot();
+    if (!Buffer.isBuffer(buffer)) throw new Error("Conteúdo binário inválido");
+    const filePath = resolveInVault(relativePath);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, buffer);
+    return fileFromPath(filePath);
+  }
+
+  async function nextPdfBeside(sourceId) {
+    const sourcePath = resolveInVault(sourceId);
+    if (!fsSync.existsSync(sourcePath) || !(await fs.stat(sourcePath)).isFile()) {
+      throw new Error("Arquivo não encontrado");
+    }
+    const meta = fileMeta(sourcePath);
+    const dest = await uniquePath(path.dirname(sourcePath), meta.title, ".pdf");
+    return toRel(dest);
+  }
+
   async function create({ folderId = "", format = "md", title } = {}) {
     await ensureRoot();
     const kind = FORMAT_EXT[format] && format !== "pdf" ? format : "md";
@@ -461,6 +491,10 @@ function createVault(root) {
     create,
     write,
     writeRaw,
+    writeBinary,
+    nextPdfBeside,
+    isAbsoluteInside,
+    relativeFromAbsolute,
     move,
     remove,
     restore,

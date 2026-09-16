@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld("api", {
     destroy: (id) => ipcRenderer.invoke("files:destroy", id),
     emptyTrash: () => ipcRenderer.invoke("files:emptyTrash"),
     import: (folderId) => ipcRenderer.invoke("files:import", folderId),
+    exportPdf: (payload) => ipcRenderer.invoke("files:exportPdf", payload),
     reveal: (id) => ipcRenderer.invoke("files:reveal", id),
     url: (relativePath) => `vault-file://file/?p=${encodeURIComponent(relativePath)}`,
   },

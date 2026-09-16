@@ -411,6 +411,56 @@ async function streamChat(event, { id, messages, model }) {
   }
 }
 
+async function htmlToPdfBuffer(htmlFragment) {
+  const documentHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page { margin: 18mm; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      color: #111;
+      font: 12pt/1.5 Georgia, "Times New Roman", serif;
+    }
+    body.pdf-export { padding: 0; }
+    h1, h2, h3, h4 { line-height: 1.25; }
+    img, svg { max-width: 100%; height: auto; }
+    pre, code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+    a { color: inherit; text-decoration: underline; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+  </style>
+</head>
+<body class="pdf-export">${htmlFragment || ""}</body>
+</html>`;
+
+  const win = new BrowserWindow({
+    show: false,
+    width: 800,
+    height: 600,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(documentHtml)}`);
+    await win.webContents.executeJavaScript("document.fonts?.ready ?? true");
+    return await win.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
 function registerIpc() {
   const wrap = (fn) => async (...args) => {
     try {
@@ -516,6 +566,70 @@ function registerIpc() {
         imported.push(await withWrite(() => requireVault().importFile(folderId, file)));
       }
       return imported;
+    })
+  );
+  ipcMain.handle(
+    "files:exportPdf",
+    wrap(async (event, payload = {}) => {
+      const { sourceId, html, destination } = payload;
+      if (!sourceId) throw new Error("Arquivo de origem inválido");
+      if (destination !== "vault" && destination !== "dialog") {
+        throw new Error("Destino de exportação inválido");
+      }
+      const fragment = String(html || "").trim();
+      if (!fragment) throw new Error("Nada para exportar");
+
+      const v = requireVault();
+      const source = await v.read(sourceId);
+      if (source.format !== "md" && source.format !== "txt") {
+        throw new Error("Só é possível exportar Markdown ou Texto");
+      }
+
+      const pdfBuffer = await htmlToPdfBuffer(fragment);
+
+      if (destination === "vault") {
+        const file = await withWrite(async () => {
+          const relativePath = await v.nextPdfBeside(sourceId);
+          return v.writeBinary(relativePath, pdfBuffer);
+        });
+        return {
+          canceled: false,
+          path: file.absolutePath,
+          id: file.id,
+          openedInVault: true,
+        };
+      }
+
+      const win = windowFromEvent(event);
+      const result = await dialog.showSaveDialog(win, {
+        title: "Salvar PDF",
+        defaultPath: path.join(v.root, `${source.title || "documento"}.pdf`),
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (result.canceled || !result.filePath) return { canceled: true };
+
+      let targetPath = result.filePath;
+      if (!targetPath.toLowerCase().endsWith(".pdf")) targetPath += ".pdf";
+
+      if (v.isAbsoluteInside(targetPath)) {
+        const file = await withWrite(async () => {
+          const relativePath = v.relativeFromAbsolute(targetPath);
+          return v.writeBinary(relativePath, pdfBuffer);
+        });
+        return {
+          canceled: false,
+          path: file.absolutePath,
+          id: file.id,
+          openedInVault: true,
+        };
+      }
+
+      await fs.promises.writeFile(targetPath, pdfBuffer);
+      return {
+        canceled: false,
+        path: targetPath,
+        openedInVault: false,
+      };
     })
   );
   ipcMain.handle(
